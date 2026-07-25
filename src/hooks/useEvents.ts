@@ -12,7 +12,11 @@ export interface Event {
   guestUrl: string;
   storagePrefix: string;
   archived: boolean;
+  quotaBytes: number;
 }
+
+const DEFAULT_EVENT_QUOTA_GB = Number(import.meta.env.VITE_DEFAULT_EVENT_QUOTA_GB) || 2;
+export const DEFAULT_EVENT_QUOTA_BYTES = DEFAULT_EVENT_QUOTA_GB * 1024 * 1024 * 1024;
 
 export function useEvents() {
   const [events, setEvents] = useState<Event[]>([]);
@@ -92,6 +96,7 @@ export async function createEvent(name: string, eventDate: string | null): Promi
     guestUrl: `${window.location.origin}/e/${slug}`,
     storagePrefix: `events/${slug}`,
     archived: false,
+    quotaBytes: DEFAULT_EVENT_QUOTA_BYTES,
   };
 
   await setDoc(doc(db, 'events', slug), event);

@@ -10,6 +10,7 @@ import { usePhotos, type Photo } from '../../hooks/usePhotos';
 import { useEvent } from '../../hooks/useEvents';
 import { ANONYMOUS_FILTER, Lightbox, PhotoTile, formatSize, sortPhotos, type SortOrder } from './GalleryShared';
 import { QrModal } from './QrModal';
+import { EventStorageBar } from './EventStorageBar';
 
 const ZIP_SIZE_WARNING_BYTES = 1.5 * 1024 * 1024 * 1024;
 
@@ -216,6 +217,8 @@ export function EventGalleryPage() {
       )}
 
       <main className="p-4">
+        {event && <EventStorageBar event={event} />}
+
         {photos.length > 0 && !loading && (
           <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
             <p className="text-xs text-ink-500">

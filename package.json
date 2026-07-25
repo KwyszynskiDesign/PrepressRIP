@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "backfill-usage": "tsx scripts/backfill-usage.ts"
   },
   "dependencies": {
     "firebase": "^11.9.0",
@@ -25,7 +26,9 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.5",
     "@vitejs/plugin-react": "^4.5.2",
+    "firebase-admin": "^14.1.0",
     "tailwindcss": "^4.1.17",
+    "tsx": "^4.19.0",
     "typescript": "^5.8.3",
     "vite": "^7.3.2"
   }

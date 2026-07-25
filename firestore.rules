@@ -8,6 +8,13 @@ service cloud.firestore {
       allow create, update, delete: if request.auth != null && request.auth.token.email == 'karol2609@gmail.com';
     }
 
+    match /usage/{eventId} {
+      // Liczony wyłącznie przez Cloud Functions (Admin SDK omija te reguły) — write:false
+      // tu jest dokumentacją intencji, nie realną barierą.
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /photos/{photoId} {
       allow create: if request.resource.data.keys().hasAll(['url', 'storagePath', 'uploadedAt', 'eventId'])
                     && request.resource.data.uploadedAt is int

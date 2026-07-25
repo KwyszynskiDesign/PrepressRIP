@@ -77,3 +77,14 @@
 - Wiele niezależnych workspace’ów.
 - Płatności.
 - Pełna migracja architektury na Google Drive jako jedyny docelowy storage bez osobnej decyzji po eksperymencie.
+
+## 8. Log techniczny — Krok 0: quota per event (2026-07)
+
+- Projekt przeszedł na plan Blaze; Cloud Functions wdrożone w regionie `us-east1` (region bucketa Storage potwierdzony ręcznie przez ownera w Google Cloud Console).
+- Model danych: `events/{slug}` dostało pole `quotaBytes` (domyślnie 2 GB, sterowane `VITE_DEFAULT_EVENT_QUOTA_GB`, ustawiane przy tworzeniu eventu). Osobna kolekcja `usage/{slug}` (nie pole na evencie — żeby częste zapisy przy każdym uploadzie nie triggerowały niepotrzebnie listy wszystkich eventów) niesie `usedBytes`, `imageCount`, `videoCount`.
+- Dwie funkcje Storage-triggered (`functions/src/index.ts`): `onEventFileFinalize` i `onEventFileDelete`. Liczą wyłącznie obiekty pod wzorcem `events/{slug}/{fileName}` — inne ścieżki, w tym legacy prefiks `photos/...`, są strukturalnie ignorowane. Klasyfikacja zdjęcie/wideo po prefiksie `contentType`; brak/nieznany `contentType` przy usunięciu pliku nie rusza liczników typu (akceptowany drobny dryf zamiast błędnej dekrementacji).
+- Funkcje są czystą księgowością — nigdy nie czytają `quotaBytes` i nie podejmują decyzji o blokadzie. Blokadę robi klient: `GuestCamera` sprawdza `archived` i `usedBytes >= quotaBytes` przy wejściu na stronę oraz ponownie (świeży odczyt) tuż przed samym uploadem — nieudany re-check nie blokuje uploadu (fail open), żeby nie karać gościa za przejściowy problem sieciowy.
+- Legacy event (`ania-marek`, pilot sprzed pivotu na multi-event) zablokowany na nowe uploady przez pole `archived: true` — pole istniało od dawna na `Event`, ale nigdzie nie było odczytywane; teraz dostało realne znaczenie zamiast wprowadzania nowego pola.
+- Zweryfikowane manualnie na jednorazowym evencie testowym: upload zdjęcia, upload wideo, usunięcie pliku, negative test na `photos/` — wszystkie wyniki zgodne co do bajta z oczekiwaniami.
+- Backfill (`scripts/backfill-usage.ts`) dla eventów z plikami sprzed wdrożenia funkcji jest zaprojektowany (ta sama reguła klasyfikacji co w funkcji, zapis bezwzględny `set` z realnego listingu Storage, nie increment), ale **jeszcze nie uruchomiony** — czeka na poświadczenia Admin SDK (sesja OAuth `firebase` CLI i Application Default Credentials używane przez `firebase-admin` to dwa różne mechanizmy).
+- Przy okazji odkryte i zalogowane osobno (nie część quota MVP, nie blokują go): eksport QR/PDF w części przeglądarek (desktop i iOS Safari) nie daje bezpośredniego pobrania pliku zamiast tego otwiera systemowy ekran udostępniania; brak przycisku kopiowania linku w modalu QR; pobieranie pojedynczego pliku w galerii admina nie działa dla zasobów cross-origin.

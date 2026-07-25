@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc } from 'firebase/firestore';
 import { Camera, Check, RefreshCw, RotateCcw } from 'lucide-react';
 import heic2any from 'heic2any';
 import { storage, db } from '../lib/firebase';
 import { compressImage } from '../utils/compressImage';
-import { useEvent } from '../hooks/useEvents';
+import { useEvent, DEFAULT_EVENT_QUOTA_BYTES } from '../hooks/useEvents';
+import { useEventUsage } from '../hooks/useEventUsage';
 
 type UploadState = 'idle' | 'converting' | 'preview' | 'uploading' | 'success' | 'error';
 type ErrorKind = 'network' | 'storage-full' | 'generic';
@@ -28,8 +29,9 @@ async function convertHeicToJpeg(f: File): Promise<File> {
 export function GuestCamera() {
   const { slug } = useParams<{ slug: string }>();
   const event = useEvent(slug);
+  const { usedBytes, loading: usageLoading } = useEventUsage(slug);
 
-  if (event === undefined) {
+  if (event === undefined || (event && usageLoading)) {
     return (
       <div className="min-h-dvh bg-canvas flex items-center justify-center" role="status" aria-label="Ładowanie">
         <RefreshCw className="w-6 h-6 text-ink-300 animate-spin" aria-hidden="true" />
@@ -46,7 +48,29 @@ export function GuestCamera() {
     );
   }
 
-  return <UploadFlow eventId={event.id} eventName={event.name} eventDate={event.eventDate} storagePrefix={event.storagePrefix} />;
+  if (event.archived) {
+    return (
+      <div className="min-h-dvh bg-canvas flex flex-col items-center justify-center p-8 text-center gap-2">
+        <p className="text-ink-900 text-lg font-medium">Wydarzenie zostało zamknięte</p>
+        <p className="text-ink-500 text-sm">
+          Organizator nie przyjmuje już nowych zdjęć ani filmów dla tego wydarzenia.
+        </p>
+      </div>
+    );
+  }
+
+  const quotaBytes = event.quotaBytes ?? DEFAULT_EVENT_QUOTA_BYTES;
+
+  return (
+    <UploadFlow
+      eventId={event.id}
+      eventName={event.name}
+      eventDate={event.eventDate}
+      storagePrefix={event.storagePrefix}
+      quotaBytes={quotaBytes}
+      initialOverQuota={usedBytes >= quotaBytes}
+    />
+  );
 }
 
 function UploadFlow({
@@ -54,20 +78,24 @@ function UploadFlow({
   eventName,
   eventDate,
   storagePrefix,
+  quotaBytes,
+  initialOverQuota,
 }: {
   eventId: string;
   eventName: string;
   eventDate: string | null;
   storagePrefix: string;
+  quotaBytes: number;
+  initialOverQuota: boolean;
 }) {
-  const [state, setState] = useState<UploadState>('idle');
+  const [state, setState] = useState<UploadState>(initialOverQuota ? 'error' : 'idle');
   const [preview, setPreview] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [author, setAuthor] = useState('');
   const [anonymous, setAnonymous] = useState(false);
   const [previewFailed, setPreviewFailed] = useState(false);
-  const [errorKind, setErrorKind] = useState<ErrorKind>('generic');
+  const [errorKind, setErrorKind] = useState<ErrorKind>(initialOverQuota ? 'storage-full' : 'generic');
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const raw = e.target.files?.[0];
@@ -105,6 +133,23 @@ function UploadFlow({
 
   async function handleUpload() {
     if (!file) return;
+
+    // Re-check tuż przed uploadem, nie tylko przy wejściu na stronę — zawęża (nie zamyka
+    // całkowicie) okno, w którym quota zostaje przekroczona w trakcie sesji gościa.
+    // Fail open: nieudany odczyt (np. gość chwilowo offline) nie blokuje uploadu — decyzja
+    // ownera, żeby nie karać gościa za przejściowy problem sieciowy.
+    try {
+      const usageSnap = await getDoc(doc(db, 'usage', eventId));
+      const used = usageSnap.exists() ? Number(usageSnap.data().usedBytes) || 0 : 0;
+      if (used >= quotaBytes) {
+        setErrorKind('storage-full');
+        setState('error');
+        return;
+      }
+    } catch (err) {
+      console.error('Re-check quota przed uploadem nie powiódł się (fail open, upload kontynuowany):', err);
+    }
+
     setState('uploading');
     try {
       const isVideo = file.type.startsWith('video/');
